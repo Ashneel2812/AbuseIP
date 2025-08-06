@@ -8,6 +8,8 @@ from pymongo import MongoClient
 from tabulate import tabulate
 import smtplib
 from email.message import EmailMessage
+from email.utils import make_msgid
+from email.mime.image import MIMEImage
 
 # Load environment variables
 load_dotenv()
@@ -26,6 +28,49 @@ abuse_db = mongo_client['AbuseIP'] if mongo_client is not None else None
 vt_collection = abuse_db['AbuseVT'] if abuse_db is not None else None
 
 ABUSE_EXCEL = 'abuse_list.xlsx'
+
+
+def fetch_abuseipdb_blacklist_to_excel(output_filename='abuse_list.xlsx'):
+    url = 'https://api.abuseipdb.com/api/v2/blacklist?ipVersion=4'
+    headers = {
+        'Key': ABUSEIPDB_API_KEY,
+        'Accept': 'application/json'
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            print(f"Failed to fetch data from AbuseIPDB. Status code: {response.status_code}")
+            return
+
+        data = response.json()
+        ip_data = data.get('data', [])
+
+        if not ip_data:
+            print("No data received from AbuseIPDB.")
+            return
+
+        formatted_data = []
+        for entry in ip_data:
+            ip = entry.get('ipAddress')
+            score = entry.get('abuseConfidenceScore')
+            country_code = entry.get('countryCode')
+            country_name = get_country_name(country_code)
+
+            formatted_data.append({
+                'ipAddress': ip,
+                'abuseConfidenceScore': score,
+                'countryCode': country_code,
+                'countryName': country_name
+            })
+
+        df = pd.DataFrame(formatted_data)
+        df.to_excel(output_filename, index=False)
+        print(f"Saved AbuseIPDB blacklist to {output_filename}")
+
+    except Exception as e:
+        print(f"Error fetching data from AbuseIPDB: {e}")
+
 
 def get_country_name(code):
     try:
@@ -83,11 +128,52 @@ def send_email_with_attachment(subject, body_html, filename):
     msg['From'] = EMAIL_SENDER
     msg['To'] = EMAIL_RECEIVER
     msg.set_content("This email contains HTML content. Please view in an HTML-compatible email client.")
+
+    image_cid = make_msgid(domain='inline.image')[1:-1]  # Strip < >
+
+    image_path = "mongo-setup.png"
+    if os.path.exists(image_path):
+        with open(image_path, 'rb') as img_file:
+            img_data = img_file.read()
+            msg.get_payload()
+            msg.add_related(img_data, maintype='image', subtype='png', cid=f"<{image_cid}>")
+
     msg.add_alternative(f"""
     <html>
         <body>
-            <p>Attached is the abuse IP list.<br>Below is the VirusTotal summary:</p>
+            <p>Hello,</p>
+            <p>Please find attached the abuse IP report in Excel format, and below is the summary table generated using VirusTotal data.</p>
+
+            <p><b>GitHub Repository:</b> 
+                <a href="https://github.com/Ashneel2812/AbuseIP">https://github.com/Ashneel2812/AbuseIP</a>
+            </p>
+
+            <p><b>VirusTotal API Version:</b><br>
+            I used the <code>v2</code> endpoint of VirusTotal instead of <code>v3</code> because v3 does not return fields like:
+            <ul>
+                <li>detected_urls</li>
+                <li>detected_downloaded_samples</li>
+                <li>undetected_downloaded_samples</li>
+                <li>undetected_urls</li>
+            </ul>
+            These fields were essential to building the IP abuse summary.
+            </p>
+
+            <p><b>Planned Workflow:</b><br>
+            The AbuseIPDB API returns 10,000 IPs in random order, so detecting new entries is resource-heavy. VirusTotal has a strict rate limit (4/min), which makes checking all IPs impractical. Hence, 5 random IPs were sampled and a known malicious IP was manually added for demo.
+            </p>
+
+            <p><b>VirusTotal Summary Table:</b></p>
             {body_html}
+
+            <p><b>MongoDB Connection Diagram:</b><br>
+            <img src="cid:{image_cid}" alt="MongoDB Diagram" style="width:600px;"><br><br></p>
+
+            <p><b>Libraries Used:</b><br>
+            <code>requests</code>, <code>pymongo</code>, <code>dotenv</code>, <code>smtplib</code>, <code>email</code>, <code>pycountry</code>, <code>pandas</code>
+            </p>
+
+            <p>Best regards,<br>I Ashneel</p>
         </body>
     </html>
     """, subtype='html')
@@ -108,9 +194,11 @@ def send_email_with_attachment(subject, body_html, filename):
 
 
 def main():
+
+    fetch_abuseipdb_blacklist_to_excel('abuse_list.xlsx')
     df = pd.read_excel(ABUSE_EXCEL)
-    top_5 = df.sample(n=5).to_dict(orient='records')
-    top_5.append({
+    random_6 = df.sample(n=5).to_dict(orient='records')
+    random_6.append({
         'ipAddress': '188.225.21.131',
         'abuseConfidenceScore': 100,
         'countryCode': 'RU',
@@ -119,7 +207,7 @@ def main():
 
     vt_results = []
 
-    for entry in top_5:
+    for entry in random_6:
         ip = entry['ipAddress']
         vt_data = fetch_virustotal(ip)
         if vt_data:
@@ -128,10 +216,10 @@ def main():
             print(f"Inserted VT data for IP: {ip}")
         time.sleep(16)
 
-    # Prepare table
+    # Create table
     table_text = format_vt_data_for_email_table(vt_results)
 
-    # Send email with table and Excel attachment
+    # Send email
     send_email_with_attachment(
     subject="AbuseIP Report - I Ashneel",
     body_html=format_vt_data_for_email_table(vt_results),
