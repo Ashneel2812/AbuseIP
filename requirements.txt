@@ -1,0 +1,10 @@
+requests
+pandas
+openpyxl
+pycountry
+gspread
+oauth2client
+pymongo
+python-dotenv 
+google-auth
+tabulate
