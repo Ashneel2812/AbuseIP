@@ -70,9 +70,6 @@ Install all dependencies with:
 pip install -r requirements.txt
 ```
 
-## License
-
-MIT
 
 ## Contact
 

@@ -130,6 +130,7 @@ def send_email_with_attachment(subject, body_html, filename):
     msg.set_content("This email contains HTML content. Please view in an HTML-compatible email client.")
 
     image_cid = make_msgid(domain='inline.image')[1:-1]  # Strip < >
+    design_img_cid = make_msgid(domain='design')[1:-1]
 
     image_path = "mongo-setup.png"
     if os.path.exists(image_path):
@@ -138,11 +139,17 @@ def send_email_with_attachment(subject, body_html, filename):
             msg.get_payload()
             msg.add_related(img_data, maintype='image', subtype='png', cid=f"<{image_cid}>")
 
+    design_image_path = "sys_design.png"
+    if os.path.exists(design_image_path):
+        with open(design_image_path, 'rb') as img:
+            msg.add_related(img.read(), maintype='image', subtype='png', cid=f"<{design_img_cid}>")
+
     msg.add_alternative(f"""
     <html>
         <body>
             <p>Hello,</p>
             <p>Please find attached the abuse IP report in Excel format, and below is the summary table generated using VirusTotal data.</p>
+            <p>Note: Fields with a value of '0' or left blank signify missing data in the API response. This is a common occurrence—out of the 100 IP addresses analyzed, only one returned complete information across all relevant fields.</p>
 
             <p><b>GitHub Repository:</b> 
                 <a href="https://github.com/Ashneel2812/AbuseIP">https://github.com/Ashneel2812/AbuseIP</a>
@@ -160,7 +167,11 @@ def send_email_with_attachment(subject, body_html, filename):
             </p>
 
             <p><b>Planned Workflow:</b><br>
-            The AbuseIPDB API returns 10,000 IPs in random order, so detecting new entries is resource-heavy. VirusTotal has a strict rate limit (4/min), which makes checking all IPs impractical. Hence, 5 random IPs were sampled and a known malicious IP was manually added for demo.
+            Initially, I planned to automate the enrichment of IP addresses by checking which IPs are not yet present in the Excel file and then analyzing them using VirusTotal. However, since the AbuseIPDB API returns 10,000 IPs in a random order, identifying new entries becomes a resource-intensive process.<br><br>
+
+            Additionally, VirusTotal enforces a strict rate limit (4 requests per minute), making it impractical to analyze all 10,000 IPs efficiently. Therefore, I decided to sample 5 IPs randomly and include a known malicious IP that contains full details for demonstration purposes.<br><br>
+
+            To ensure the email remains concise, only the first 5 URLs in each field are shown in the summary table, followed by <code>...</code> if more exist. However, all URLs (including those truncated in the email) are still stored in full within the MongoDB database for reference or future processing.
             </p>
 
             <p><b>VirusTotal Summary Table:</b></p>
@@ -169,9 +180,14 @@ def send_email_with_attachment(subject, body_html, filename):
             <p><b>MongoDB Connection Diagram:</b><br>
             <img src="cid:{image_cid}" alt="MongoDB Diagram" style="width:600px;"><br><br></p>
 
+            <p><b>System Design Diagram:</b><br>
+            <img src="cid:{design_img_cid}" alt="System Design" style="width:600px;"><br><br></p>
+
             <p><b>Libraries Used:</b><br>
             <code>requests</code>, <code>pymongo</code>, <code>dotenv</code>, <code>smtplib</code>, <code>email</code>, <code>pycountry</code>, <code>pandas</code>
             </p>
+
+            <p>If you have any questions or require further clarification, please feel free to reach out.</p>
 
             <p>Best regards,<br>I Ashneel</p>
         </body>
